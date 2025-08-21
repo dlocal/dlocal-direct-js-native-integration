@@ -1,6 +1,16 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+}
+
+// Load secrets from properties file
+val secretsFile = rootProject.file("secrets.properties")
+val secrets = Properties()
+if (secretsFile.exists()) {
+    secrets.load(FileInputStream(secretsFile))
 }
 
 android {
@@ -15,6 +25,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        
+        // Build config fields for secrets
+        buildConfigField("String", "DLOCAL_PUBLIC_KEY", "\"${secrets.getProperty("DLOCAL_PUBLIC_KEY", "default_key")}\"")
     }
 
     buildTypes {
@@ -26,6 +39,11 @@ android {
             )
         }
     }
+    
+    buildFeatures {
+        buildConfig = true
+    }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
