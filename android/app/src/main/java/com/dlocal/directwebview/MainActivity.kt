@@ -236,7 +236,7 @@ class MainActivity : AppCompatActivity() {
     private fun onCreateTokenClick() {
         // Call sendCreateToken with sample data
         sendCreateToken(
-            publicKey = BuildConfig.DLOCAL_PUBLIC_KEY,
+            publicKey = "YOUR_PUBLIC_KEY",
             name = "JOHN DOE",
             cvv = "123",
             expirationMonth = "12",
@@ -250,7 +250,7 @@ class MainActivity : AppCompatActivity() {
     private fun onGetBinInfoClick() {
         // Call sendGetBinInformation with sample data
         sendGetBinInformation(
-            publicKey = BuildConfig.DLOCAL_PUBLIC_KEY,
+            publicKey = "YOUR_PUBLIC_KEY",
             bin = "411111",
             country = "AR"
         )
@@ -260,7 +260,7 @@ class MainActivity : AppCompatActivity() {
     private fun onGetInstallmentsClick() {
         // Call sendGetInstallmentsPlan with sample data
         sendGetInstallmentsPlan(
-            publicKey = BuildConfig.DLOCAL_PUBLIC_KEY,
+            publicKey = "YOUR_PUBLIC_KEY",
             amount = 100,
             currency = "USD",
             country = "AR",
