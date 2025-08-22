@@ -1,0 +1,249 @@
+package com.dlocal.directwebview
+
+import android.annotation.SuppressLint
+import android.os.Bundle
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.Toolbar
+import com.google.android.material.textfield.TextInputEditText
+import org.json.JSONArray
+import org.json.JSONObject
+
+class BinInfoActivity : AppCompatActivity() {
+    private lateinit var webView: WebView
+    private var isSDKReady = false
+    private lateinit var tvResponse: TextView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_bin_info)
+
+        setupToolbar()
+        initializeViews()
+        setupWebView()
+        setupButtonClickListener()
+    }
+
+    private fun setupToolbar() {
+        val toolbar = findViewById<Toolbar>(R.id.toolbar)
+        setSupportActionBar(toolbar)
+        supportActionBar?.title = "Get Bin Information"
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+    }
+
+    override fun onSupportNavigateUp(): Boolean {
+        finish()
+        return true
+    }
+
+    private fun initializeViews() {
+        tvResponse = findViewById(R.id.tvResponse)
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun setupWebView() {
+        webView = WebView(this)
+        webView.settings.javaScriptEnabled = true
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                injectBridgeFunctions()
+            }
+        }
+        webView.webChromeClient = WebChromeClient()
+
+        // Bridge for messages from JS → Kotlin
+        webView.addJavascriptInterface(object : Any() {
+            @JavascriptInterface
+            fun postMessage(message: String) {
+                runOnUiThread {
+                    try {
+                        val jsonMessage = JSONObject(message)
+                        val type = jsonMessage.getString("type")
+                        val payload = jsonMessage.getJSONObject("payload")
+                        
+                        when (type) {
+                            "success" -> {
+                                tvResponse.text = "SUCCESS:\n${payload.toString(2)}"
+                                Toast.makeText(this@BinInfoActivity, "Bin information retrieved successfully!", Toast.LENGTH_SHORT).show()
+                            }
+                            "error" -> {
+                                tvResponse.text = "ERROR:\n${payload.toString(2)}"
+                                Toast.makeText(this@BinInfoActivity, "Error: ${payload.optString("message", "Unknown error")}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        tvResponse.text = "ERROR parsing response:\n$message"
+                        Toast.makeText(this@BinInfoActivity, "Error parsing response", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }, "AndroidBridge")
+
+        // Load the HTML content
+        webView.loadDataWithBaseURL(null, getHtmlContent(), "text/html", "UTF-8", null)
+    }
+
+    private fun setupButtonClickListener() {
+        findViewById<Button>(R.id.btnGetBinInfo).setOnClickListener {
+            if (isSDKReady) {
+                onGetBinInfoClick()
+            } else {
+                Toast.makeText(this, "Please wait for dLocal SDK to load...", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun onGetBinInfoClick() {
+        val publicKey = findViewById<TextInputEditText>(R.id.etPublicKey).text.toString()
+        val bin = findViewById<TextInputEditText>(R.id.etBin).text.toString()
+        val country = findViewById<TextInputEditText>(R.id.etCountry).text.toString()
+
+        // Validate inputs
+        if (publicKey.isBlank() || bin.isBlank() || country.isBlank()) {
+            Toast.makeText(this, "Please fill all fields", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        sendGetBinInformation(publicKey, bin, country)
+        Toast.makeText(this, "Get Bin Information requested!", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun injectBridgeFunctions() {
+        val js = """
+            // SDK loaded callback
+            window.onSdkReady = function() {
+                AndroidBridge.postMessage(JSON.stringify({
+                    type: 'sdk_ready',
+                    payload: { message: 'SDK loaded successfully' }
+                }));
+            };
+            
+            // Check if SDK is already loaded
+            if (typeof window.dlocal !== 'undefined') {
+                AndroidBridge.postMessage(JSON.stringify({
+                    type: 'sdk_ready',
+                    payload: { message: 'SDK already loaded' }
+                }));
+            }
+        """.trimIndent()
+        
+        webView.evaluateJavascript(js) { result ->
+            isSDKReady = true
+        }
+    }
+
+    private fun sendGetBinInformation(publicKey: String, bin: String, country: String) {
+        val args = JSONArray().put(bin).put(country)
+        val message = JSONObject()
+            .put("action", "getBinInformation")
+            .put("key", publicKey)
+            .put("args", args)
+        postToWeb(message)
+    }
+
+    // Native → JS: Send a JSON message the page understands
+    private fun postToWeb(message: JSONObject) {
+        val js = "window.handleMessageFromNative(" + JSONObject.quote(message.toString()) + ");"
+        webView.evaluateJavascript(js, null)
+    }
+
+    private fun getHtmlContent(): String {
+        return """
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>dLocal Direct Bridge</title>
+            <script src="https://js.dlocal.com/direct"></script>
+          </head>
+          <body>
+            <div>dLocal SDK loaded in WebView</div>
+            <script>
+              function postToAndroid(obj){
+                try {
+                  AndroidBridge.postMessage(JSON.stringify(obj));
+                } catch (e) {
+                  console.error('Error posting to Android:', e);
+                }
+              }
+
+              function safeStringify(v){
+                try{ 
+                  const seen=new WeakSet(); 
+                  return JSON.stringify(v, (_,val)=>{
+                    if (typeof val==='object' && val){ 
+                      if(seen.has(val)) return '[Circular]'; 
+                      seen.add(val);
+                    } 
+                    return val;
+                  }); 
+                } catch(e){ 
+                  try{ return String(v);}catch(_){return '[Unserializable]';} 
+                }
+              }
+
+              function serializeError(err){
+                const base = {
+                  name: err && err.name,
+                  message: err && typeof err.message!=='undefined' ? (typeof err.message==='string'? err.message : safeStringify(err.message)) : String(err),
+                  code: err && err.code,
+                  status: err && (err.status || err.statusCode),
+                  stack: err && err.stack,
+                };
+                if (err && typeof err==='object'){
+                  if (err.data!==undefined) base.data=err.data;
+                  if (err.details!==undefined) base.details=err.details;
+                  if (err.errors!==undefined) base.errors=err.errors;
+                  if (err.error!==undefined) base.error=err.error;
+                  if (err.response) base.response = {status: err.response.status, statusText: err.response.statusText, data: err.response.data};
+                  try{ Object.keys(err).forEach(k=>{ if(!(k in base)) base[k]=err[k]; }); }catch(_){ }
+                }
+                return base;
+              }
+
+              async function handleMessageFromNative(raw){
+                let data; 
+                try{ data = JSON.parse(raw); }catch(e){ 
+                  return postToAndroid({ type:'error', payload:{ message:'Invalid JSON from native', raw } }); 
+                }
+                const { action, key, payload, args } = data||{};
+                if (!action) return postToAndroid({ type:'error', payload:{ message:'Missing action' } });
+                if (!key) return postToAndroid({ type:'error', payload:{ message:'Missing public key' } });
+                
+                try{
+                  const direct = window.dlocal(key);
+                  let result;
+                  switch(action){
+                    case 'getBinInformation':
+                      result = await direct.getBinInformation.apply(null, Array.isArray(args)? args : []);
+                      break;
+                    default:
+                      return postToAndroid({ type:'error', payload:{ message:'Unknown action: '+action } });
+                  }
+                  postToAndroid({ type:'success', payload:{ action, result } });
+                }catch(err){
+                  const serialized = serializeError(err);
+                  postToAndroid({ type:'error', payload: serialized });
+                }
+              }
+
+              window.handleMessageFromNative = handleMessageFromNative;
+              
+              // Notify when SDK is ready
+              if (window.onSdkReady) {
+                window.onSdkReady();
+              }
+            </script>
+          </body>
+        </html>
+        """.trimIndent()
+    }
+}
